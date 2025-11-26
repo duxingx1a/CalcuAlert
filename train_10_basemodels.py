@@ -10,8 +10,10 @@ from imblearn.over_sampling import SMOTE
 import datetime
 
 logger = ehr_utils.get_logger('train_10_basemodels')
-
-
+timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+#由train based模型固定一个时间戳，后续所有训练验证都基于此
+with open("timestamp.txt", "w") as f:
+    f.write(timestamp)
 def main(n_splits=2):
     """
     先划分20%的测试集，剩下的80%做交叉验证训练
@@ -39,12 +41,11 @@ def main(n_splits=2):
     logger.info("-" * 80)
 
     # 创建保存模型的文件夹
-    model_save_dir = f'trained_models_{datetime.datetime.now().strftime("%Y%m%d_%H%M")}'
+
+    model_save_dir = os.path.join("trained_models", timestamp)
     os.makedirs(model_save_dir, exist_ok=True)
 
     for model_idx, model_name in enumerate(all_models, 1):
-        if model_idx < 7:
-            continue
         logger.info(f"{'='*60}")
         logger.info(f"正在训练模型 {model_idx}/{len(all_models)}：{model_name}")
         logger.info(f"{'='*60}")
@@ -115,10 +116,9 @@ def main(n_splits=2):
             logger.info(f"最佳模型来自第 {best_fold_idx+1} 折，验证集 AUC：{best_val_auc:.4f}")
 
             # 保存最佳模型
-            model_filename = f'{model_save_dir}/{model_name}_cv{n_splits}_{best_val_auc:.4f}.pkl'
-            with open(model_filename, 'wb') as f:
-                pickle.dump(best_model, f)
-            logger.info(f"最佳模型已保存到：{model_filename}")
+            model_name = f'{model_name}_cv{n_splits}_{best_val_auc:.3f}'
+            model_file_path = ehr_utils.save_model_to_pkl(best_model, model_save_dir, model_name)
+            logger.info(f"最佳模型已保存到：{model_file_path}")
 
             # 计算训练时间
             model_end_time = time.time()
@@ -142,7 +142,8 @@ def main(n_splits=2):
             logger.error(f"✗ {model_name} 训练失败：{str(e)}")
             all_models_results[model_name] = {'error': str(e), 'training_time': time.time() - model_start_time}
     #保存模型结果到文件
-    results_filename = f'{model_save_dir}/all_models_eval_results.csv'
+    results_save_dir = os.path.join("results", timestamp)
+    results_filename = f'{results_save_dir}/all_models_eval_results.csv'
     ehr_utils.append_metrics_to_csv(all_models_results, results_filename)
 
     # 计算总用时

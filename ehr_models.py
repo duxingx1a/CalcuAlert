@@ -102,7 +102,7 @@ model_params = {
 }
 # 定义模型类型别名
 CalculusModelType = Union[AdaBoostClassifier, DecisionTreeClassifier, GaussianNB, GradientBoostingClassifier, lgb.LGBMClassifier, LinearDiscriminantAnalysis, LogisticRegression,
-                  MLPClassifier, RandomForestClassifier, xgb.XGBClassifier]
+                          MLPClassifier, RandomForestClassifier, xgb.XGBClassifier]
 
 # class StackingMLP(nn.Module):
 
@@ -134,7 +134,7 @@ CalculusModelType = Union[AdaBoostClassifier, DecisionTreeClassifier, GaussianNB
 #         return np.column_stack([prob_neg, prob_pos])
 
 
-def get_model(model_name: str, use_optimized_params: bool = True) -> CalculusModelType:
+def get_model(model_name: str, use_optimized_params: bool = True, **kwargs) -> CalculusModelType:
     """
     根据模型名称返回对应的模型实例。
     :param model_name: 模型名称字符串
@@ -164,8 +164,8 @@ def get_model(model_name: str, use_optimized_params: bool = True) -> CalculusMod
     if use_optimized_params:
         params = model_params[param_key]
     else:
-        # 默认参数,只为需要并行的模型设置n_jobs
-        params = {}
+        # 使用默认参数或传入的参数
+        params = kwargs
         if model_name in ['LightGBM', 'LogisticRegression', 'RandomForest', 'XGBoost']:
             params['n_jobs'] = -1
 
