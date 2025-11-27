@@ -1,5 +1,6 @@
 __pycache__/
 .vscode
+.idea/
 cache
 checkpoints
 trained_models/
