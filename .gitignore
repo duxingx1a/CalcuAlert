@@ -6,3 +6,4 @@ checkpoints
 trained_models/
 logs/
 result*/
+*.png

@@ -137,9 +137,13 @@ CalculusModelType = Union[AdaBoostClassifier, DecisionTreeClassifier, GaussianNB
 def get_model(model_name: str, use_optimized_params: bool = True, **kwargs) -> CalculusModelType:
     """
     根据模型名称返回对应的模型实例。
-    :param model_name: 模型名称字符串
-    :param use_optimized_params: 是否使用优化参数,默认True使用优化参数,False使用默认参数
-    :return: 对应的模型实例
+    
+    参数：
+        - model_name: 模型名称字符串。
+        - use_optimized_params: 是否使用预定义的优化参数。
+        - **kwargs: 其他模型参数（当 use_optimized_params 为 False 时使用）。
+    返回：
+        - 对应的模型实例。
     """
     # 模型映射字典
     model_mapping = {
