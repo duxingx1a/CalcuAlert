@@ -1,4 +1,3 @@
-import json
 from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.naive_bayes import GaussianNB
@@ -8,8 +7,8 @@ from sklearn.neural_network import MLPClassifier
 import lightgbm as lgb
 import xgboost as xgb
 from typing import Any, Union
-import torch
-import torch.nn as nn
+# import torch
+# import torch.nn as nn
 import numpy as np
 # 读取参数文件
 model_params = {
@@ -102,47 +101,49 @@ model_params = {
     }
 }
 # 定义模型类型别名
-ModelType = Union[AdaBoostClassifier, DecisionTreeClassifier, GaussianNB, GradientBoostingClassifier, lgb.LGBMClassifier, LinearDiscriminantAnalysis, LogisticRegression,
-                  MLPClassifier, RandomForestClassifier, xgb.XGBClassifier]
+CalculusModelType = Union[AdaBoostClassifier, DecisionTreeClassifier, GaussianNB, GradientBoostingClassifier, lgb.LGBMClassifier, LinearDiscriminantAnalysis, LogisticRegression,
+                          MLPClassifier, RandomForestClassifier, xgb.XGBClassifier]
+
+# class StackingMLP(nn.Module):
+
+#     def __init__(self, input_dim):
+#         super().__init__()
+#         self.net = nn.Sequential(nn.Linear(input_dim, 64), nn.ReLU(), nn.Dropout(0.3), nn.Linear(64, 32), nn.ReLU(), nn.Dropout(0.3), nn.Linear(32, 1))
+
+#     def forward(self, x):
+#         return self.net(x).squeeze(1)
+
+# class PytorchModelWrapper:
+#     """包装 PyTorch 模型以符合 scikit-learn 接口"""
+
+#     def __init__(self, torch_model, device):
+#         self.model = torch_model
+#         self.device = device
+
+#     def predict_proba(self, X):
+#         """
+#         X 可以是 numpy 或 pandas
+#         返回 ndarray (n_samples, 2) [:,1] 为正类概率
+#         """
+#         self.model.eval()
+#         X_tensor = torch.tensor(np.asarray(X), dtype=torch.float32).to(self.device)
+#         with torch.no_grad():
+#             logits = self.model(X_tensor).cpu().numpy()
+#         prob_pos = 1 / (1 + np.exp(-logits))  # sigmoid
+#         prob_neg = 1 - prob_pos
+#         return np.column_stack([prob_neg, prob_pos])
 
 
-class StackingMLP(nn.Module):
-
-    def __init__(self, input_dim):
-        super().__init__()
-        self.net = nn.Sequential(nn.Linear(input_dim, 64), nn.ReLU(), nn.Dropout(0.3), nn.Linear(64, 32), nn.ReLU(), nn.Dropout(0.3), nn.Linear(32, 1))
-
-    def forward(self, x):
-        return self.net(x).squeeze(1)
-
-
-class PytorchModelWrapper:
-    """包装 PyTorch 模型以符合 scikit-learn 接口"""
-
-    def __init__(self, torch_model, device):
-        self.model = torch_model
-        self.device = device
-
-    def predict_proba(self, X):
-        """
-        X 可以是 numpy 或 pandas
-        返回 ndarray (n_samples, 2) [:,1] 为正类概率
-        """
-        self.model.eval()
-        X_tensor = torch.tensor(np.asarray(X), dtype=torch.float32).to(self.device)
-        with torch.no_grad():
-            logits = self.model(X_tensor).cpu().numpy()
-        prob_pos = 1 / (1 + np.exp(-logits))  # sigmoid
-        prob_neg = 1 - prob_pos
-        return np.column_stack([prob_neg, prob_pos])
-
-
-def get_model(model_name: str, use_optimized_params: bool = True) -> ModelType:
+def get_model(model_name: str, use_optimized_params: bool = True, **kwargs) -> CalculusModelType:
     """
     根据模型名称返回对应的模型实例。
-    :param model_name: 模型名称字符串
-    :param use_optimized_params: 是否使用优化参数,默认True使用优化参数,False使用默认参数
-    :return: 对应的模型实例
+    
+    参数：
+        - model_name: 模型名称字符串。
+        - use_optimized_params: 是否使用预定义的优化参数。
+        - **kwargs: 其他模型参数（当 use_optimized_params 为 False 时使用）。
+    返回：
+        - 对应的模型实例。
     """
     # 模型映射字典
     model_mapping = {
@@ -167,8 +168,8 @@ def get_model(model_name: str, use_optimized_params: bool = True) -> ModelType:
     if use_optimized_params:
         params = model_params[param_key]
     else:
-        # 默认参数,只为需要并行的模型设置n_jobs
-        params = {}
+        # 使用默认参数或传入的参数
+        params = kwargs
         if model_name in ['LightGBM', 'LogisticRegression', 'RandomForest', 'XGBoost']:
             params['n_jobs'] = -1
 

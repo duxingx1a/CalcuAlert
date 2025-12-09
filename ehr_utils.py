@@ -1,25 +1,98 @@
+# 标准库
 import glob
-import pickle
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split, StratifiedKFold
-from sklearn.utils.class_weight import compute_class_weight
 import os
-from matplotlib import pyplot as plt
-from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score, roc_curve
-from sklearn.utils import resample
-from scipy import stats
-import seaborn as sns
+import sys
+import pickle
 from typing import Any, List, Tuple
-import torch
+from pathlib import Path
+# 数值/表格
+import numpy as np
+import pandas as pd
+
+# 机器学习
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score, roc_curve
+
+# 可视化
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# 日志与进度条
+import logging
+from logging.handlers import RotatingFileHandler
 from tqdm import tqdm
+
+from ehr_models import CalculusModelType
+
+__all__ = [
+    "get_logger",
+    "preprocess_ehr_train_test_data",
+    "load_external",
+    "handle_missing_values",
+    "load_all_trained_pkls",
+    "report_sens_spec",
+    "generate_meta_features",
+    "append_metrics_to_csv",
+    "save_model_to_pkl",
+]
+
+
+def get_logger(name: str = "main") -> logging.Logger:
+    """
+    获取一个已配置好的 logger（控制台 INFO + 文件 DEBUG）。
+    重复调用不会叠加 Handler。
+    """
+    logger = logging.getLogger(name)
+
+    # 已经配置过就直接返回
+    if logger.handlers:
+        return logger
+
+    logger.setLevel(logging.DEBUG)  # 全局最低级别
+    fmt = "[ %(asctime)s - %(levelname)s - %(filename)s:%(lineno)d ] - %(message)s"
+    formatter = logging.Formatter(fmt, datefmt="%Y-%m-%d %H:%M:%S")
+
+    # 1. 控制台
+    console = logging.StreamHandler(sys.stdout)
+    console.setLevel(logging.INFO)
+    console.setFormatter(formatter)
+    logger.addHandler(console)
+
+    # 2. 文件（rotating）
+    log_dir = "logs"
+    os.makedirs(log_dir, exist_ok=True)
+    file_path = os.path.join(log_dir, f"{name}.log")
+    file_handler = RotatingFileHandler(
+        file_path,
+        maxBytes=5 * 1024 * 1024,  # 5 MB
+        backupCount=3,
+        encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    # 3. 异常兜底
+    def handle_exception(exc_type, exc_value, exc_traceback):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+            return
+        logger.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+    sys.excepthook = handle_exception
+
+    # 首次启动留痕
+    logger.info(f"\n\n\n----- {name} 日志启动-----")
+    logger.info("Logger initialized, log file: %s", os.path.abspath(file_path))
+    return logger
 
 
 def _apply_log1p_transform(X: pd.DataFrame) -> tuple[pd.DataFrame, list]:
     """
     对数值特征进行log1p变换的辅助函数
+    
     参数：
         X: 特征数据框
+    
     返回：
         tuple: (X_transformed, num_cols)
             - X_transformed: 经过log1p变换的特征数据框
@@ -31,9 +104,10 @@ def _apply_log1p_transform(X: pd.DataFrame) -> tuple[pd.DataFrame, list]:
     return X_transformed, num_cols
 
 
-def load_and_preprocess_ehr_data(csv_path: str, target_col: str = 'stone', split_data: bool = True, test_size: float = 0.2, random_state: int = 42, verbose: bool = True):
+def _load_and_preprocess_ehr_data(csv_path: str, target_col: str = 'stone', split_data: bool = True, test_size: float = 0.2, random_state: int = 42, verbose: bool = True):
     """
     从CSV文件读取数据并进行预处理，返回log1p变换后的数据
+    
     参数：
         csv_path (str): CSV文件路径
         target_col (str): 目标变量列名，默认为'stone'
@@ -41,6 +115,7 @@ def load_and_preprocess_ehr_data(csv_path: str, target_col: str = 'stone', split
         test_size (float): 测试集比例，默认为0.2（仅在split_data=True时有效）
         random_state (int): 随机种子，默认为42（仅在split_data=True时有效）
         verbose (bool): 是否打印详细信息，默认True
+    
     返回：
         如果 split_data=True:
             tuple: (X_train_log1p, X_val_log1p, y_train, y_val)
@@ -77,15 +152,14 @@ def load_and_preprocess_ehr_data(csv_path: str, target_col: str = 'stone', split
         return X_log1p, y
 
 
-# 保持向后兼容的包装函数
 def preprocess_ehr_train_test_data(csv_path: str, target_col: str = 'stone', test_size: float = 0.2, random_state: int = 42) -> tuple:
     """向后兼容的训练集/测试集划分函数"""
-    return load_and_preprocess_ehr_data(csv_path, target_col, split_data=True, test_size=test_size, random_state=random_state)
+    return _load_and_preprocess_ehr_data(csv_path, target_col, split_data=True, test_size=test_size, random_state=random_state)
 
 
 def load_external(csv_path: str, target_col: str = 'stone') -> tuple:
     """向后兼容的外部数据加载函数"""
-    return load_and_preprocess_ehr_data(csv_path, target_col, split_data=False)
+    return _load_and_preprocess_ehr_data(csv_path, target_col, split_data=False)
 
 
 def handle_missing_values(df, method='simple', strategy='mean', n_neighbors=5, max_iter=10, random_state=42):
@@ -134,9 +208,9 @@ def handle_missing_values(df, method='simple', strategy='mean', n_neighbors=5, m
     return df_imputed
 
 
-def load_all_pkls(dir_path: str) -> List[Tuple[str, Any]]:
+def load_all_trained_pkls(dir_path: str) -> List[Tuple[str, Any]]:
     """
-    从指定目录加载所有 .pkl 模型文件。
+    从指定目录加载所有训练过的 .pkl 模型文件。
 
     参数：
         dir_path (str): 模型文件所在目录。
@@ -149,7 +223,7 @@ def load_all_pkls(dir_path: str) -> List[Tuple[str, Any]]:
     for fp in files:
         with open(fp, 'rb') as f:
             m = pickle.load(f)
-        name = os.path.basename(fp).replace('.pkl', '')
+        name = os.path.basename(fp).replace('.pkl', '').split('_')[0]
         models.append((name, m))
     print(f'[INFO] 共加载 {len(models)} 个模型：{[n for n, _ in models]}')
     return models
@@ -205,7 +279,7 @@ def report_sens_spec(y_tr, p_tr, y_va, p_va, plot=True) -> None:
         plt.show()
 
 
-def generate_meta_features(models, X, cache_name='meta_proba', cache_dir='cache', use_cache=True):
+def generate_meta_features(models: List[Tuple[str, CalculusModelType]], X: pd.DataFrame | None, cache_dir='cache_tmp', cache_name: str = 'meta_proba', use_cache=True):
     """
     生成元特征(Meta Features)用于 Stacking 集成学习
     
@@ -214,30 +288,107 @@ def generate_meta_features(models, X, cache_name='meta_proba', cache_dir='cache'
     
     参数：
         models (List[Tuple[str, model]]): 基础模型列表，每个元素为 (模型名称, 模型对象) 的元组
-        X (pd.DataFrame or np.ndarray): 输入特征数据，形状为 (N_samples, N_features)
+        X (pd.DataFrame or np.ndarray or None): 输入特征数据，形状为 (N_samples, N_features)，如果为 None，则从缓存读取
+        cache_dir (str): 缓存文件夹路径，默认为 'cache_tmp'
         cache_name (str): 缓存文件名（不包含扩展名），默认为 'meta_proba'
-        cache_dir (str): 缓存目录路径，默认为 'cache'，所有文件都保存在这个目录下
         use_cache (bool): 是否使用缓存，默认为 True
 
     返回：
-        torch.Tensor: 元特征张量，形状为 (N_samples, n_models)
-                     每一列对应一个基础模型对正类的预测概率
+        pd.DataFrame: 元特征 DataFrame，形状为 (N_samples, n_models)
+                      列名格式为 "{模型名}_proba"，对应各基础模型对正类的预测概率
     
     注意：
         - predict_proba 返回形状为 (N_samples, 2)，[:, 1] 取正类概率
     """
     os.makedirs(cache_dir, exist_ok=True)
-    cache_file = os.path.join(cache_dir, f'{cache_name}.pt')
+    
+    cache_file = f"{cache_dir}/{cache_name}.csv"
+
+    # 2. 尝试读取缓存
     if use_cache and os.path.exists(cache_file):
         print(f'[INFO] 直接读取缓存: {cache_file}')
-        return torch.load(cache_file)
-    probas = []
+        return pd.read_csv(cache_file)
+
+    # 3. 生成特征
+    probas_dict = {}
+    if X is None:
+        raise ValueError("X 不能为 None，除非 use_cache=True 且缓存文件存在。")
     for name, m in tqdm(models, desc=f'生成元特征 ({cache_name})'):
-        probas.append(m.predict_proba(X)[:, 1])
+        try:
+            # 获取正类概率
+            if hasattr(m, "predict_proba"):
+                pred = m.predict_proba(X)
+                prob = pred[:, 1]  # type: ignore # 取正类概率
+            else:
+                # 如果模型没有 predict_proba，记录警告并跳过或尝试 predict
+                print(f"[WARNING] 模型 {name} 不支持 predict_proba，跳过该模型。")
+                continue
+            probas_dict[f'{name}_proba'] = prob.astype(np.float32)
+        except Exception as e:
+            print(f"[ERROR] 模型 {name} 预测失败: {e}")
+            continue
+    if not probas_dict:
+        raise RuntimeError("未能生成任何元特征，请检查模型列表或输入数据。")
 
-    probas = np.column_stack(probas)
-    tensor = torch.tensor(probas, dtype=torch.float32)
-    torch.save(tensor, cache_file)
-    print(f'[INFO] 元特征已保存: {cache_file} (shape: {tensor.shape})')
+    # 4. 构建 DataFrame 并保存
+    meta_df = pd.DataFrame(probas_dict)
+    meta_df.to_csv(cache_file, index=False, float_format='%.5f')
+    print(f'[INFO] 元特征已保存: {cache_file} (shape: {meta_df.shape})')
 
-    return tensor
+    return meta_df
+
+
+def append_metrics_to_csv(results_dict: dict[str, dict], csv_path: str | Path) -> None:
+    """
+    将 results 中的标量指标追加（或创建）到 CSV。
+    同一模型多次调用会覆盖旧行，保证一行一个模型。
+    参数:
+        results_dict: 包含模型结果的嵌套字典，格式为 {model_name: {metric_name: value, ...}, ...}
+        csv_path: 结果 CSV 文件路径
+    """
+    csv_path = Path(csv_path)
+
+    # 1. 把嵌套字典拉平成一行
+    rows = []
+    for model_name, res in results_dict.items():
+        flat = {"model": model_name}
+        if "error" in res:
+            flat["error"] = res["error"]
+        else:
+            # 只取标量，跳过对象/字典
+            flat.update({k: v for k, v in res.items() if isinstance(v, (int, float, str))})
+        rows.append(flat)
+
+    new_df = pd.DataFrame(rows).set_index("model")
+
+    # 2. 如果文件已存在，先读旧数据再合并
+    if csv_path.exists():
+        old_df = pd.read_csv(csv_path, index_col="model")
+        combined = old_df.reindex(columns=new_df.columns)  # 对齐列
+        combined.update(new_df)  # 覆盖同名行
+        combined = combined.combine_first(new_df)  # 补新行
+    else:
+        combined = new_df
+
+    # 3. 写回磁盘
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    combined = combined.round(5)
+    combined.to_csv(csv_path, index=True)
+
+
+def save_model_to_pkl(model: Any, save_dir: str, model_name: str) -> str:
+    os.makedirs(save_dir, exist_ok=True)
+    file_path = os.path.join(save_dir, f"{model_name}.pkl")
+    with open(file_path, "wb") as f:
+        pickle.dump(model, f)
+    return file_path
+
+
+def test():
+    # 测试加载模型
+    a = load_all_trained_pkls('models')
+    print(a)
+
+
+if __name__ == '__main__':
+    test()
